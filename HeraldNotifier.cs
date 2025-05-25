@@ -33,6 +33,7 @@ namespace Observatory.Herald
         {
             get => new ()
             {
+                SelectedAPI = "Observatory API (Patreon)",
                 SelectedVoice = "American - Christopher",
                 SelectedRate = "Default",
                 PatreonApiEndpoint = "https://api.observatory.xjph.net/",
