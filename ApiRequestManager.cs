@@ -10,20 +10,30 @@ namespace Observatory.Herald
     class ApiRequestManager
     {
         private HttpClient httpClient;
-        private string UserId;
-        private string ApiEndpoint;
         private DirectoryInfo cacheLocation;
         private int cacheSize;
         private Action<Exception, string> ErrorLogger;
         private ConcurrentDictionary<string, CacheData> cacheIndex;
-        private Api Api;
+        private Api Api {
+            get
+            {
+                if (settings.API.TryGetValue(settings.SelectedAPI ?? "Patreon", out var selectedApi))
+                {
+                    return (Api)selectedApi;
+                }
+                else
+                {
+                    return Api.Patreon;
+                }
+            }
+        }
+        private HeraldSettings settings;
 
         internal ApiRequestManager(
             HeraldSettings settings, HttpClient httpClient, string cacheFolder, Action<Exception, String> errorLogger)
         {
-            ApiEndpoint = settings.PatreonApiEndpoint;
-            Api = settings.API.TryGetValue(settings.SelectedAPI, out var selectedApi) ? (Api)selectedApi : Api.Patreon;
-            UserId = settings.UserID;
+            this.settings = settings;
+            // Api = settings.API.TryGetValue(settings.SelectedAPI ?? "Patreon", out var selectedApi) ? (Api)selectedApi : Api.Patreon;
             this.httpClient = httpClient;
             cacheSize = Math.Max(settings.CacheSize, 1);
             cacheLocation = new DirectoryInfo(cacheFolder);
@@ -40,7 +50,7 @@ namespace Observatory.Herald
 
         internal async Task<string> GetNewUserId()
         {
-            var requestTask = httpClient.GetAsync(ApiEndpoint + "NewUserId");
+            var requestTask = httpClient.GetAsync(settings.PatreonApiEndpoint + "NewUserId");
 
             requestTask.Wait(5000);
 
@@ -51,7 +61,7 @@ namespace Observatory.Herald
             if (response.IsSuccessStatusCode)
             {
                 var userId = await response.Content.ReadAsStringAsync();
-                UserId = userId;
+                settings.UserID = userId;
                 return userId;
             }
             else
@@ -60,7 +70,7 @@ namespace Observatory.Herald
             }
         }
 
-        internal async Task<string> GetAudioFileFromSsml(string ssml, string voice, string style, string rate)
+        internal async Task<string> GetAudioFile(string ssml, string rawText, string voice, string style, string rate)
         {
 
             ssml = AddVoiceToSsml(ssml, voice, style, rate);
@@ -84,41 +94,128 @@ namespace Observatory.Herald
                 }
             }
 
-
-            if (audioFileInfo == null)
-            {
-                using StringContent request = new(ssml)
+            audioFileInfo ??= Api switch
                 {
-                    Headers = {
-                        { "User-Id", UserId }
-                    }
+                    Api.Patreon => await GetAudioFromPatreon(ssml, audioFilename),
+                    Api.Azure => await GetAudioFromAzure(ssml, audioFilename),
+                    Api.OpenAI => await GetAudioFromOpenAI(rawText, audioFilename),
+                    _ => throw new NotImplementedException("No valid API selected."),
                 };
-                
-                var requestTask = httpClient.PostAsync(ApiEndpoint + "AzureVoice/Speak", request);
-
-                requestTask.Wait(5000);
-
-                if (requestTask.IsFaulted) 
-                    throw new PluginException("Herald", "Error retrieving voice audio.", requestTask.Exception);
-
-                using var response = await requestTask;
-
-                if (response.IsSuccessStatusCode)
-                {
-                    using FileStream fileStream = new FileStream(audioFilename, FileMode.CreateNew);
-                    response.Content.ReadAsStream().CopyTo(fileStream);
-                    fileStream.Close();
-                }
-                else
-                {
-                    throw new PluginException("Herald", "Unable to retrieve audio data.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
-                }
-                audioFileInfo = new FileInfo(audioFilename);
-            }
 
             UpdateAndPruneCache(audioFileInfo);
                         
             return audioFilename;
+        }
+
+        private async Task<FileInfo> GetAudioFromPatreon(string ssml, string audioFilename)
+        {
+            using StringContent request = new(ssml)
+            {
+                Headers = {
+                    { "User-Id", settings.UserID }
+                }
+            };
+
+            var requestTask = httpClient.PostAsync(settings.PatreonApiEndpoint + "AzureVoice/Speak", request);
+
+            requestTask.Wait(5000);
+
+            if (requestTask.IsFaulted)
+                throw new PluginException("Herald", "Error retrieving voice audio from Observatory API.", requestTask.Exception);
+
+            using var response = await requestTask;
+
+            if (response.IsSuccessStatusCode)
+            {
+                using FileStream fileStream = new FileStream(audioFilename, FileMode.CreateNew);
+                response.Content.ReadAsStream().CopyTo(fileStream);
+                fileStream.Close();
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                throw new PluginException("Herald", "Not Authorised to use Observatory API, authenticate with Patreon first.", new());
+            }
+            else
+            {
+                throw new PluginException("Herald", "Unable to retrieve audio data from Observatory API.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
+            }
+            return new FileInfo(audioFilename);
+        }
+
+        private async Task<FileInfo> GetAudioFromAzure(string ssml, string audioFilename)
+        {
+            using StringContent request = new(ssml, Encoding.UTF8, "application/ssml+xml");
+            
+           
+
+            var url = $"https://{settings.AzureRegion}.tts.speech.microsoft.com/cognitiveservices/v1";
+            using HttpRequestMessage httpRequest = new(HttpMethod.Post, url);
+            httpRequest.Headers.Add("User-Agent", $"ObservatoryHerald{settings.SettingsVersion} (+https://github.com/Xjph/ObservatoryCore)");
+            httpRequest.Headers.Add("Ocp-Apim-Subscription-Key", settings.SubscriptionKey);
+            httpRequest.Headers.Add("X-Microsoft-OutputFormat", "audio-16khz-128kbitrate-mono-mp3");
+            httpRequest.Headers.Add("X-Microsoft-ProjectName", "ObservatoryHerald");
+            httpRequest.Content = request;
+
+            var requestTask = httpClient.SendAsync(httpRequest);
+
+            requestTask.Wait(5000);
+
+            if (requestTask.IsFaulted)
+                throw new PluginException("Herald", "Error retrieving voice audio from Azure.", requestTask.Exception);
+
+            using var response = await requestTask;
+
+            if (response.IsSuccessStatusCode)
+            {
+                using FileStream fileStream = new FileStream(audioFilename, FileMode.CreateNew);
+                response.Content.ReadAsStream().CopyTo(fileStream);
+                fileStream.Close();
+            }
+            else
+            {
+                throw new PluginException("Herald", "Unable to retrieve audio data from Azure.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
+            }
+            return new FileInfo(audioFilename);
+        }
+
+        private async Task<FileInfo> GetAudioFromOpenAI(string text, string audioFilename)
+        {
+            Dictionary<string, string> openAiPayload = new()
+            {
+                { "model", settings.OpenAIModel },
+                { "input", text },
+                { "voice", settings.OpenAIVoice },
+                { "response_format", "mp3" }
+            };
+
+            using StringContent request = new(JsonSerializer.Serialize(openAiPayload))
+            {
+                Headers = {
+                    { "Authorization", "Bearer " + settings.OpenAIKey },
+                    { "Content-Type", "application/json" }
+                }
+            };
+
+            var requestTask = httpClient.PostAsync(settings.OpenAIEndpoint, request);
+
+            requestTask.Wait(5000);
+
+            if (requestTask.IsFaulted)
+                throw new PluginException("Herald", "Error retrieving voice audio from OpenAI.", requestTask.Exception);
+
+            using var response = await requestTask;
+
+            if (response.IsSuccessStatusCode)
+            {
+                using FileStream fileStream = new FileStream(audioFilename, FileMode.CreateNew);
+                response.Content.ReadAsStream().CopyTo(fileStream);
+                fileStream.Close();
+            }
+            else
+            {
+                throw new PluginException("Herald", "Unable to retrieve audio data from OpenAI.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
+            }
+            return new FileInfo(audioFilename);
         }
 
         private static string AddVoiceToSsml(string ssml, string voiceName, string styleName, string rate)
@@ -158,35 +255,32 @@ namespace Observatory.Herald
         {
             Dictionary<string, object> voices = new();
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, ApiEndpoint + "AzureVoice/List")
-            {
-                Headers = {
-                    { "User-Id", UserId }
-                }
-            };
+            using var request = new HttpRequestMessage(HttpMethod.Get, settings.PatreonApiEndpoint + "AzureVoice/List");
 
             var response = httpClient.Send(request);
 
             if (response.IsSuccessStatusCode)
             {
-                var voiceJson = JsonDocument.Parse(response.Content.ReadAsStringAsync().Result);
+                var voiceJson = response.Content.ReadAsStringAsync().Result;
+                var voiceDoc = JsonDocument.Parse(voiceJson);
 
-                var englishSpeakingVoices = from v in voiceJson.RootElement.EnumerateArray()
+                var englishSpeakingVoices = from v in voiceDoc.RootElement.EnumerateArray()
                                             where v.GetProperty("Locale").GetString().StartsWith("en-")
+                                            || (v.TryGetProperty("SecondaryLocaleList", out var l) && l.EnumerateArray().Any(s => s.GetString().StartsWith("en-")))
                                             select v;
 
                 foreach(var voice in englishSpeakingVoices)
                 {
                     string demonym = GetDemonymFromLocale(voice.GetProperty("Locale").GetString());
 
-                    voices.Add(
+                    voices.TryAdd(
                         demonym + " - " + voice.GetProperty("LocalName").GetString(),
                         voice);
 
                     if (voice.TryGetProperty("StyleList", out var styles))
                     foreach (var style in styles.EnumerateArray())
                     {
-                        voices.Add(
+                        voices.TryAdd(
                             demonym + " - " + voice.GetProperty("LocalName").GetString() + " - " + style.GetString(),
                             voice);
                     }
@@ -194,67 +288,45 @@ namespace Observatory.Herald
             }
             else
             {
-                voices.Add("Irish - Emily", null);
-                // throw new PluginException("Herald", "Unable to retrieve available voices.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
+                throw new PluginException("Herald", "Unable to retrieve available voices.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
             }
             
             return voices;
         }
 
+        private static readonly Dictionary<string, string> LocaleDemonymMap = new()
+        {
+            { "en-AU", "Australian" },
+            { "en-CA", "Canadian" },
+            { "en-GB", "British" },
+            { "en-HK", "Hong Konger" },
+            { "en-IE", "Irish" },
+            { "en-IN", "Indian" },
+            { "en-KE", "Kenyan" },
+            { "en-NG", "Nigerian" },
+            { "en-NZ", "Kiwi" },
+            { "en-PH", "Filipino" },
+            { "en-SG", "Singaporean" },
+            { "en-TZ", "Tanzanian" },
+            { "en-US", "American" },
+            { "en-ZA", "South African" },
+            { "de-DE", "German" },
+            { "fr-FR", "French" },
+            { "it-IT", "Italian" },
+            { "ja-JP", "Japanese" },
+            { "ko-KR", "Korean" },
+            { "es-ES", "Spanish" },
+            { "es-MX", "Mexican" },
+            { "pt-BR", "Brazilian" },
+            { "pt-PT", "Portuguese" },
+            { "zh-CN", "Chinese" },
+            { "zh-HK", "Hong Konger" },
+            { "zh-TW", "Taiwanese" }
+        };
+
         private static string GetDemonymFromLocale(string locale)
         {
-            string demonym;
-
-            switch (locale)
-            {
-                case "en-AU":
-                    demonym = "Australian";
-                    break;
-                case "en-CA":
-                    demonym = "Canadian";
-                    break;
-                case "en-GB":
-                    demonym = "British";
-                    break;
-                case "en-HK":
-                    demonym = "Hong Konger";
-                    break;
-                case "en-IE":
-                    demonym = "Irish";
-                    break;
-                case "en-IN":
-                    demonym = "Indian";
-                    break;
-                case "en-KE":
-                    demonym = "Kenyan";
-                    break;
-                case "en-NG":
-                    demonym = "Nigerian";
-                    break;
-                case "en-NZ":
-                    demonym = "Kiwi";
-                    break;
-                case "en-PH":
-                    demonym = "Filipino";
-                    break;
-                case "en-SG":
-                    demonym = "Singaporean";
-                    break;
-                case "en-TZ":
-                    demonym = "Tanzanian";
-                    break;
-                case "en-US":
-                    demonym = "American";
-                    break;
-                case "en-ZA":
-                    demonym = "South African";
-                    break;
-                default:
-                    demonym = locale;
-                    break;
-            }
-
-            return demonym;
+            return LocaleDemonymMap.TryGetValue(locale, out var demonym) ? demonym : locale;
         }
 
         private void ReadCache()
