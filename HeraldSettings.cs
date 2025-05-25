@@ -9,12 +9,13 @@ namespace Observatory.Herald
 
         [SettingDisplayName("API")]
         [SettingBackingValue("SelectedAPI")]
+        [System.Text.Json.Serialization.JsonIgnore]
         public Dictionary<string, object> API
         { get => new()
             {
                 { "Observatory API (Patreon)", 0 },
                 { "Azure Cognitive Services", 1 },
-                { "OpenAI", 2 }
+                { "OpenAI (Beta)", 2 }
             };
         }
 
