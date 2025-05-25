@@ -1,6 +1,7 @@
 ﻿using Observatory.Framework;
 using System.Diagnostics;
 using Observatory.Framework.Interfaces;
+using Observatory.Framework.ParameterTypes;
 
 namespace Observatory.Herald
 {
@@ -72,7 +73,7 @@ namespace Observatory.Herald
                     {
                         audioRequestTasks.Add(string.IsNullOrWhiteSpace(notification.TitleSsml)
                             ? RetrieveAudioToFile(notification.Title)
-                            : RetrieveAudioSsmlToFile(notification.TitleSsml));
+                            : RetrieveAudioSsmlToFile(notification.TitleSsml, notification.Title));
                     }
 
                     if (!notification.Suppression.HasFlag(NotificationSuppression.Detail)
@@ -80,7 +81,7 @@ namespace Observatory.Herald
                     {
                         audioRequestTasks.Add(string.IsNullOrWhiteSpace(notification.DetailSsml)
                             ? RetrieveAudioToFile(notification.Detail)
-                            : RetrieveAudioSsmlToFile(notification.DetailSsml));
+                            : RetrieveAudioSsmlToFile(notification.DetailSsml, notification.Detail));
                     }
 
                     if (audioRequestTasks.Count > 0)
@@ -100,15 +101,15 @@ namespace Observatory.Herald
 
         private async Task<string> RetrieveAudioToFile(string text)
         {
-            return await RetrieveAudioSsmlToFile($"<speak version=\"1.0\" xmlns=\"http://www.w3.org/2001/10/synthesis\" xml:lang=\"en-US\"><voice name=\"\">{System.Security.SecurityElement.Escape(text)}</voice></speak>");
+            return await RetrieveAudioSsmlToFile($"<speak version=\"1.0\" xmlns=\"http://www.w3.org/2001/10/synthesis\" xml:lang=\"en-US\"><voice name=\"\">{System.Security.SecurityElement.Escape(text)}</voice></speak>", text);
         }
 
-        private async Task<string> RetrieveAudioSsmlToFile(string ssml)
+        private async Task<string> RetrieveAudioSsmlToFile(string ssml, string text)
         {
-            return await apiManager.GetAudioFileFromSsml(ssml, voice, style, rate);
+            return await apiManager.GetAudioFile(ssml, text, voice, style, rate);
         }
 
-        private void PlayAudioRequestsSequentially(List<Task<string>> requestTasks)
+        private async void PlayAudioRequestsSequentially(List<Task<string>> requestTasks)
         {
             foreach (var request in requestTasks)
             {
@@ -117,7 +118,12 @@ namespace Observatory.Herald
                 {
                     file = request.Result;
                     Debug.WriteLine($"Playing audio file: {file}");
-                    core.PlayAudioFile(file);
+                    var options = new AudioOptions
+                    {
+                        Instant = false,
+                        DeleteAfterPlay = false
+                    };
+                    await core.PlayAudioFile(file);
                 }
                 catch (Exception ex)
                 {
