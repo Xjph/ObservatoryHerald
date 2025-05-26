@@ -59,6 +59,7 @@ namespace Observatory.Herald
         {
             Thread.Sleep(200); // Allow time for other notifications to arrive.
             NotificationArgs notification = null;
+            var random = new Random();
             try
             {
                 while (notifications.Any())
@@ -109,7 +110,7 @@ namespace Observatory.Herald
             return await apiManager.GetAudioFile(ssml, text, voice, style, rate);
         }
 
-        private async void PlayAudioRequestsSequentially(List<Task<string>> requestTasks)
+        private void PlayAudioRequestsSequentially(List<Task<string>> requestTasks)
         {
             foreach (var request in requestTasks)
             {
@@ -123,7 +124,7 @@ namespace Observatory.Herald
                         Instant = false,
                         DeleteAfterPlay = false
                     };
-                    await core.PlayAudioFile(file);
+                    core.PlayAudioFile(file);
                 }
                 catch (Exception ex)
                 {
