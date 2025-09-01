@@ -19,7 +19,7 @@ namespace Observatory.Herald
             AuthorName = "Vithigar",
             Links = new()
             {
-                new AboutLink("github", "https://github.com/Xjph/ObservatoryCore"),
+                new AboutLink("github", "https://github.com/Xjph/ObservatoryHerald"),
                 new AboutLink("Documentation", "https://observatory.xjph.net/usage/plugins/herald"),
             }
         };
@@ -50,6 +50,8 @@ namespace Observatory.Herald
         }
 
         public AboutInfo AboutInfo => _aboutInfo;
+
+        public static Guid Guid => new("AEA9A421-A19C-421F-A47B-5678956EC202");
 
         public bool OverrideAudioNotifications => true;
 
@@ -87,6 +89,55 @@ namespace Observatory.Herald
                 heraldSettings.UserID = apiManager.GetNewUserId().Result;
             heraldSettings.Test = TestVoice;
             heraldSettings.Authenticate = () => { Authenticate(heraldSettings.UserID); };
+        }
+
+        public bool UpdateAvailable(out string url)
+        {
+            var response = SyncResult(Core.HttpClient.GetAsync("https://api.github.com/repos/xjph/ObservatoryHerald/releases"));
+
+            if (response.StatusCode == HttpStatusCode.OK)
+            {
+                var responseBody = SyncResult(response.Content.ReadAsStringAsync());
+                var releases = JsonDocument.Parse(responseBody).RootElement.EnumerateArray();
+                Version? latestVersion = null;
+                string latestVersionUrl = string.Empty;
+
+                foreach (var release in releases)
+                {
+                    var tag = release.GetProperty("tag_name").ToString();
+                    var verstrings = tag[1..].Split('.');
+                    var ver = verstrings.Select(verString => { _ = int.TryParse(verString, out int ver); return ver; }).ToArray();
+                    if (ver.Length == 3 || ver.Length == 4)
+                    {
+                        Version githubVersion = new(ver[0], ver[1], ver[2], ver.Length == 3 ? 0 : ver[3]);
+                        if (latestVersion == null || githubVersion > latestVersion)
+                        {
+                            latestVersion = githubVersion;
+                            latestVersionUrl = release.GetProperty("html_url").ToString();
+                        }
+                    }
+                }
+
+                if (latestVersion > typeof(HeraldNotifier).Assembly.GetName().Version)
+                {
+                    url = latestVersionUrl;
+                    return true;
+                }
+            }
+            url = string.Empty;
+            return false;
+        }
+
+        private static T SyncResult<T>(Task<T> task)
+        {
+            if (task.Wait(500) && task.IsCompletedSuccessfully)
+            {
+                return task.Result;
+            }
+            else
+            {
+                throw new TimeoutException("The task did not complete within the expected time.");
+            }
         }
 
         private static void Authenticate(string userId)
