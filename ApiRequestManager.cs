@@ -55,7 +55,7 @@ namespace Observatory.Herald
             requestTask.Wait(5000);
 
             if (requestTask.IsFaulted)
-                throw new PluginException("Herald", "Error retrieving new user ID.", requestTask.Exception);
+                throw new Exception("Error retrieving new user ID.", requestTask.Exception);
 
             using var response = await requestTask;
             if (response.IsSuccessStatusCode)
@@ -66,7 +66,7 @@ namespace Observatory.Herald
             }
             else
             {
-                throw new PluginException("Herald", "Unable to retrieve new user ID.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
+                throw new Exception("Unable to retrieve new user ID.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
             }
         }
 
@@ -93,7 +93,7 @@ namespace Observatory.Herald
                     audioFileInfo = null;
                 }
             }
-
+            
             audioFileInfo ??= Api switch
                 {
                     Api.Patreon => await GetAudioFromPatreon(ssml, audioFilename),
@@ -115,13 +115,13 @@ namespace Observatory.Herald
                     { "User-Id", settings.UserID }
                 }
             };
-
+            
             var requestTask = httpClient.PostAsync(settings.PatreonApiEndpoint + "AzureVoice/Speak", request);
 
             requestTask.Wait(5000);
 
             if (requestTask.IsFaulted)
-                throw new PluginException("Herald", "Error retrieving voice audio from Observatory API.", requestTask.Exception);
+                throw new Exception("Error retrieving voice audio from Observatory API.", requestTask.Exception);
 
             using var response = await requestTask;
 
@@ -133,11 +133,11 @@ namespace Observatory.Herald
             }
             else if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
-                throw new PluginException("Herald", "Not Authorised to use Observatory API, authenticate with Patreon first.", new());
+                throw new Exception("Not Authorised to use Observatory API, authenticate with Patreon first.");
             }
             else
             {
-                throw new PluginException("Herald", "Unable to retrieve audio data from Observatory API.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
+                throw new Exception("Unable to retrieve audio data from Observatory API.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
             }
             return new FileInfo(audioFilename);
         }
@@ -146,8 +146,6 @@ namespace Observatory.Herald
         {
             using StringContent request = new(ssml, Encoding.UTF8, "application/ssml+xml");
             
-           
-
             var url = $"https://{settings.AzureRegion}.tts.speech.microsoft.com/cognitiveservices/v1";
             using HttpRequestMessage httpRequest = new(HttpMethod.Post, url);
             httpRequest.Headers.Add("User-Agent", $"ObservatoryHerald{settings.SettingsVersion} (+https://github.com/Xjph/ObservatoryCore)");

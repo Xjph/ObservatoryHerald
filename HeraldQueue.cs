@@ -107,7 +107,15 @@ namespace Observatory.Herald
 
         private async Task<string> RetrieveAudioSsmlToFile(string ssml, string text)
         {
-            return await apiManager.GetAudioFile(ssml, text, voice, style, rate);
+            try
+            {
+                return await apiManager.GetAudioFile(ssml, text, voice, style, rate);
+            }
+            catch (Exception ex)
+            {
+                core.DisplayMessageBox("Herald Error", $"Failed to retrieve audio:{Environment.NewLine}{ex.Message}");
+                return string.Empty;
+            }
         }
 
         private void PlayAudioRequestsSequentially(List<Task<string>> requestTasks)
@@ -118,13 +126,16 @@ namespace Observatory.Herald
                 try
                 {
                     file = request.Result;
-                    Debug.WriteLine($"Playing audio file: {file}");
-                    var options = new AudioOptions
+                    if (file != string.Empty)
                     {
-                        Instant = false,
-                        DeleteAfterPlay = false
-                    };
-                    core.PlayAudioFile(file);
+                        Debug.WriteLine($"Playing audio file: {file}");
+                        var options = new AudioOptions
+                        {
+                            Instant = false,
+                            DeleteAfterPlay = false
+                        };
+                        core.PlayAudioFile(file);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -132,6 +143,15 @@ namespace Observatory.Herald
                     {
                         Debug.WriteLine($"Failed to play {file}: {ex.Message}");
                         ErrorLogger(ex, $"while playing: {file}");
+                    }
+                    if (request.IsFaulted)
+                    {
+                        request.Exception.Handle(e =>
+                        {
+                            Debug.WriteLine(e.Message);
+                            ErrorLogger(e, e.Message);
+                            return true;
+                        });
                     }
                     else
                     {
