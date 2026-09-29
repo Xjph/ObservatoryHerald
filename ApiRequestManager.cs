@@ -186,15 +186,14 @@ namespace Observatory.Herald
                 { "response_format", "mp3" }
             };
 
-            using StringContent request = new(JsonSerializer.Serialize(openAiPayload))
-            {
-                Headers = {
-                    { "Authorization", "Bearer " + settings.OpenAIKey },
-                    { "Content-Type", "application/json" }
-                }
-            };
+            using StringContent request = new(JsonSerializer.Serialize(openAiPayload));
+            using HttpRequestMessage httpRequest = new(HttpMethod.Post, settings.OpenAIEndpoint);
+            httpRequest.Headers.Add("User-Agent", $"ObservatoryHerald{settings.SettingsVersion} (+https://github.com/Xjph/ObservatoryCore)");
+            httpRequest.Headers.Add("Authorization", "Bearer " + settings.OpenAIKey);
+            httpRequest.Headers.Add("Content-Type", "application/json");
+            httpRequest.Content = request;
 
-            var requestTask = httpClient.PostAsync(settings.OpenAIEndpoint, request);
+            var requestTask = httpClient.SendAsync(httpRequest);
 
             requestTask.Wait(5000);
 
