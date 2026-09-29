@@ -91,7 +91,7 @@ namespace Observatory.Herald
             heraldSettings.Authenticate = () => { Authenticate(heraldSettings.UserID); };
         }
 
-        public bool UpdateAvailable(out string url)
+        public PluginUpdateInfo CheckForPluginUpdate()
         {
             var response = SyncResult(Core.HttpClient.GetAsync("https://api.github.com/repos/xjph/ObservatoryHerald/releases"));
 
@@ -120,12 +120,14 @@ namespace Observatory.Herald
 
                 if (latestVersion > typeof(HeraldNotifier).Assembly.GetName().Version)
                 {
-                    url = latestVersionUrl;
-                    return true;
+                    return new()
+                    {
+                        Status = PluginUpdateStatus.UpdateAvailable,
+                        Url = latestVersionUrl,
+                    };
                 }
             }
-            url = string.Empty;
-            return false;
+            return new();
         }
 
         private static T SyncResult<T>(Task<T> task)
