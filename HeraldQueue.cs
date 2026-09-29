@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using Observatory.Framework.Interfaces;
 using Observatory.Framework.ParameterTypes;
+using System.Xml;
 
 namespace Observatory.Herald
 {
@@ -109,7 +110,15 @@ namespace Observatory.Herald
         {
             try
             {
-                return await apiManager.GetAudioFile(ssml, text, voice, style, rate);
+                XmlNode voiceElement = null;
+                var xmlDoc = new XmlDocument();
+                xmlDoc.LoadXml(ssml.ToLower());
+                voiceElement = xmlDoc.SelectSingleNode("//voice");
+                if (voiceElement != null && !string.IsNullOrWhiteSpace(voiceElement.InnerText))
+                {
+                    return await apiManager.GetAudioFile(ssml, text, voice, style, rate);
+                }
+                return string.Empty;
             }
             catch (Exception ex)
             {
