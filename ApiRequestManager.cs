@@ -256,16 +256,35 @@ namespace Observatory.Herald
 
             var response = httpClient.Send(request);
 
+            string voicesJson = null;
+
             if (response.IsSuccessStatusCode)
             {
-                settings.CachedVoiceList = response.Content.ReadAsStringAsync().Result;
+                voicesJson = response.Content.ReadAsStringAsync().Result;
+                File.WriteAllText(cacheLocation + "CachedVoiceList.json", voicesJson);
             }
-            else if (string.IsNullOrWhiteSpace(settings.CachedVoiceList))
+            else 
             {
-                throw new PluginException("Herald", "Unable to retrieve available voices.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
+                try
+                {
+                    voicesJson = File.ReadAllText(cacheLocation + "CachedVoiceList.json");
+                }
+                catch (Exception ex)
+                {
+                    throw new PluginException("Herald", "Unable to read CachedVoiceList.json", ex);
+                }
             }
 
-            var voiceDoc = JsonDocument.Parse(settings.CachedVoiceList);
+            JsonDocument voiceDoc;
+
+            try
+            {
+                voiceDoc = JsonDocument.Parse(voicesJson);
+            }
+            catch (Exception ex)
+            {
+                throw new PluginException("Herald", $"Unable to retrieve available voices. {response.ReasonPhrase}", ex);
+            }
 
             var englishSpeakingVoices = from v in voiceDoc.RootElement.EnumerateArray()
                                         where v.GetProperty("Locale").GetString().StartsWith("en-")
