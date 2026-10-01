@@ -28,6 +28,9 @@ namespace Observatory.Herald
         public Dictionary<string, object> Voices { get; internal set; }
 
         [SettingIgnore]
+        public string CachedVoiceList { get; internal set; } = null;
+
+        [SettingIgnore]
         public string SelectedVoice { get; set; }
 
         [SettingBackingValue("SelectedRate")]

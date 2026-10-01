@@ -89,6 +89,7 @@ namespace Observatory.Herald
                 heraldSettings.UserID = apiManager.GetNewUserId().Result;
             heraldSettings.Test = TestVoice;
             heraldSettings.Authenticate = () => { Authenticate(heraldSettings.UserID); };
+            observatoryCore.SaveSettings(this);
         }
 
         public PluginUpdateInfo CheckForPluginUpdate()

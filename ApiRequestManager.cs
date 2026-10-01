@@ -258,34 +258,35 @@ namespace Observatory.Herald
 
             if (response.IsSuccessStatusCode)
             {
-                var voiceJson = response.Content.ReadAsStringAsync().Result;
-                var voiceDoc = JsonDocument.Parse(voiceJson);
-
-                var englishSpeakingVoices = from v in voiceDoc.RootElement.EnumerateArray()
-                                            where v.GetProperty("Locale").GetString().StartsWith("en-")
-                                            || (v.TryGetProperty("SecondaryLocaleList", out var l) && l.EnumerateArray().Any(s => s.GetString().StartsWith("en-")))
-                                            select v;
-
-                foreach(var voice in englishSpeakingVoices)
-                {
-                    string demonym = GetDemonymFromLocale(voice.GetProperty("Locale").GetString());
-
-                    voices.TryAdd(
-                        demonym + " - " + voice.GetProperty("LocalName").GetString(),
-                        voice);
-
-                    if (voice.TryGetProperty("StyleList", out var styles))
-                    foreach (var style in styles.EnumerateArray())
-                    {
-                        voices.TryAdd(
-                            demonym + " - " + voice.GetProperty("LocalName").GetString() + " - " + style.GetString(),
-                            voice);
-                    }
-                }
+                settings.CachedVoiceList = response.Content.ReadAsStringAsync().Result;
             }
-            else
+            else if (string.IsNullOrWhiteSpace(settings.CachedVoiceList))
             {
                 throw new PluginException("Herald", "Unable to retrieve available voices.", new Exception(response.StatusCode.ToString() + ": " + response.ReasonPhrase));
+            }
+
+            var voiceDoc = JsonDocument.Parse(settings.CachedVoiceList);
+
+            var englishSpeakingVoices = from v in voiceDoc.RootElement.EnumerateArray()
+                                        where v.GetProperty("Locale").GetString().StartsWith("en-")
+                                        || (v.TryGetProperty("SecondaryLocaleList", out var l) && l.EnumerateArray().Any(s => s.GetString().StartsWith("en-")))
+                                        select v;
+
+            foreach(var voice in englishSpeakingVoices)
+            {
+                string demonym = GetDemonymFromLocale(voice.GetProperty("Locale").GetString());
+
+                voices.TryAdd(
+                    demonym + " - " + voice.GetProperty("LocalName").GetString(),
+                    voice);
+
+                if (voice.TryGetProperty("StyleList", out var styles))
+                foreach (var style in styles.EnumerateArray())
+                {
+                    voices.TryAdd(
+                        demonym + " - " + voice.GetProperty("LocalName").GetString() + " - " + style.GetString(),
+                        voice);
+                }
             }
             
             return voices;
