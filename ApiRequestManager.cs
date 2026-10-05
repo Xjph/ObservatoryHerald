@@ -254,11 +254,23 @@ namespace Observatory.Herald
 
             using var request = new HttpRequestMessage(HttpMethod.Get, settings.PatreonApiEndpoint + "AzureVoice/List");
 
-            var response = httpClient.Send(request);
+            bool responseComplete = false;
+            Exception requestException = null;
+            HttpResponseMessage response = null;
+
+            try
+            {
+                response = httpClient.Send(request);
+                responseComplete = true;
+            }
+            catch (Exception ex)
+            {
+                requestException = ex;
+            }
 
             string voicesJson = null;
 
-            if (response.IsSuccessStatusCode)
+            if (responseComplete && response.IsSuccessStatusCode)
             {
                 voicesJson = response.Content.ReadAsStringAsync().Result;
                 File.WriteAllText(cacheLocation + "CachedVoiceList.json", voicesJson);
@@ -271,6 +283,14 @@ namespace Observatory.Herald
                 }
                 catch (Exception ex)
                 {
+                    if (requestException != null)
+                    {
+                        throw new PluginException("Herald", "Unable to retrieve available voices from Observatory API.", requestException);
+                    }
+                    else if (response != null)
+                    {
+                        throw new PluginException("Herald", $"Unable to retrieve available voices, no cache present. {response.ReasonPhrase}", ex);
+                    }
                     throw new PluginException("Herald", "Unable to read CachedVoiceList.json", ex);
                 }
             }
